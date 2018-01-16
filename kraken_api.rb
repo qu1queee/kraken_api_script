@@ -85,7 +85,7 @@ def encode_options(input)
   uri.query
 end
 
-# API-Sign = Message signature using HMAC-SHA512 of (URI path + SHA256(nonce + POST data)) and base64 decoded secret API ke
+# API-Sign = Message signature using HMAC-SHA512 of (URI path + SHA256(nonce + POST data)) and base64 decoded secret API key
 def generate_message_signature(method, input={}, post_data)
   key = Base64.decode64($api_secret)
   message = generate_message(method, post_data, input)
@@ -118,12 +118,14 @@ end
 
 
 class Trade_Methods
-  #private methods
   def output_debug(type, method, input={})
     type.eql?("private") ? debug("Going to request => " + "private user data".bold.green) : debug("Going to request => " + "public market data.".bold.green )
     debug("Requested method type => " + "#{method}".bold.green)
     input.empty? ? debug("No inputs available for this method, using default values".red) : debug("Input: => " + "#{input}".blue)
   end
+  ###################### private methods ######################
+
+  #TODO: add an argument description per method
 
   #method names lose consistency, but I prefer them to be exactly as the names in the API docs, read https://www.kraken.com/help/api
   def TradeBalance(input={})
@@ -131,7 +133,48 @@ class Trade_Methods
     post_private 'TradeBalance', input
   end
 
-  #public methods
+  def OpenOrders(input={})
+    output_debug("private", 'OpenOrders', input)
+    post_private 'OpenOrders', input
+  end
+
+
+  def ClosedOrders(input={})
+    output_debug("private", 'ClosedOrders', input)
+    post_private 'ClosedOrders', input
+  end
+
+  # TODO: define mandatory arguments
+  # def QueryOrders(input={})
+  #   output_debug("private", 'QueryOrders', input)
+  #   post_private 'QueryOrders', input
+  # end
+
+  def TradesHistory(input={})
+    output_debug("private", 'TradesHistory', input)
+    post_private 'TradesHistory', input
+  end
+
+  # TODO: define mandatory arguments
+  # def QueryTrades(input={})
+  #   output_debug("private", 'QueryTrades', input)
+  #   post_private 'QueryTrades', input
+  # end
+
+  def TradeVolume(input={})
+    output_debug("private", 'TradeVolume', input)
+    post_private 'TradeVolume', input
+  end
+
+  ###################### private methods trading ######################
+
+  def AddOrder(input={})
+    output_debug("private", 'AddOrder', input)
+    post_private 'AddOrder', input
+  end
+
+
+  ###################### public methods ######################
 
   #method names lose consistency, but I prefer them to be exactly as the names in the API docs, read https://www.kraken.com/help/api
   def Ticker(input={})
@@ -141,17 +184,20 @@ class Trade_Methods
 end
 
 
+#TODO: fix ugly method code
 def process_input()
   input_hash = Hash.new
   return {} if $method_input.empty?
   if $method_input.include?(',')
-    multiple_inputs = $method_input.split(',')
+    $method_input.split(',').each do |element|
+        hash_values = element.split(':')
+        input_hash[hash_values[0]] = hash_values[1]
+    end
   else
     hash_values = $method_input.split(':')
     input_hash = {
       "#{hash_values[0]}" => "#{hash_values[1]}"
     }
-
   end
   return input_hash
 end
