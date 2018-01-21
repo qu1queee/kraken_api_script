@@ -16,6 +16,7 @@ $api_version = "0"
 $base_uri = "https://api.kraken.com"
 $request_type = 'private'
 $method_name = 'TradeBalance'
+$trading_mode = false
 $method_input = Hash.new
 
 class String
@@ -35,6 +36,7 @@ $optparse = OptionParser.new do | opts |
   opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $api_secret = value }
   opts.on("-m", "--method name", String, "more info at https://www.kraken.com/help/api (default: TradeBalance())") { |value| $method_name = value }
   opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+  opts.on("-t", "--trade mode", TrueClass ,"Trading mode enable during 30m") { |value| $trading_mode = value }
 end
 
 $optparse.parse!
@@ -53,11 +55,7 @@ def get_public(method, input={})
   uri = URI(url + '?' + body)
   res = Net::HTTP.get_response(uri)
   puts "Response #{res.code} ,  #{res.message}: , #{res.body}"
-  if res.code.eql?'200'
-    exit 0
-  else
-    exit 1
-  end
+  return res
 end
 
 def post_private(method, input={})
@@ -71,11 +69,7 @@ def post_private(method, input={})
   req.body = post_data
   res = https.request(req)
   puts "Response #{res.code} ,  #{res.message}: , #{res.body}"
-  if res.code.eql?'200'
-    exit 0
-  else
-    exit 1
-  end
+  return res
 end
 
 # Sets the query component for this URI from a Hash object(POST data)
@@ -127,6 +121,11 @@ class Trade_Methods
 
   #TODO: add an argument description per method
 
+  def Balance(input={})
+    output_debug("private", 'Balance', input)
+    post_private 'Balance', input
+  end
+
   #method names lose consistency, but I prefer them to be exactly as the names in the API docs, read https://www.kraken.com/help/api
   def TradeBalance(input={})
     output_debug("private", 'TradeBalance', input)
@@ -177,30 +176,134 @@ class Trade_Methods
   ###################### public methods ######################
 
   #method names lose consistency, but I prefer them to be exactly as the names in the API docs, read https://www.kraken.com/help/api
-  def Ticker(input={})
+
+  #-m Ticker -i "pair:XRPEUR"
+  def Ticker(input={}) #SELECTED
     output_debug("public", 'Ticker', input)
     get_public 'Ticker', input
   end
+
+  def Time(input={})
+    output_debug("public", 'Time', input)
+    get_public 'Time', input
+  end
+
+  def Assets(input={})
+    output_debug("public", 'Assets', input)
+    get_public 'Assets', input
+  end
+
+  #-m AssetPairs -i "pair:XRPEUR"
+  def AssetPairs(input={})
+    output_debug("public", 'AssetPairs', input)
+    get_public 'AssetPairs', input
+  end
+
+  #-m OHLC -i "pair:XRPEUR&interval:15&since:1516482900"
+  def OHLC(input={}) # Can help to verify trend in the series data, interested in the CLOSE value
+    output_debug("public", 'OHLC', input)
+    get_public 'OHLC', input
+  end
+
+  def Trades(input={})
+    output_debug("public", 'Trades', input)
+    get_public 'Trades', input
+  end
+
+  def Spread(input={})
+    output_debug("public", 'Trades', input)
+    get_public 'Spread', input
+  end
 end
 
+def check_http_call(http_output, method)
+  if http_output.code.eql?('200')
+    debug("Retrieving " + "#{method}".bold.green + " request, successfully")
+  else
+    debug("Retrieving " + "#{method}".bold.green + " request, failed, going to exit...")
+    exit 1
+  end
+end
 
-#TODO: fix ugly method code
+def check_body_content(body, method)
+  if body["error"].empty?
+    return true
+  end
+  debug "http" + "#{method}".bold.green + "call return an invalid result, going to exit.."
+  exit 1
+end
+
+#check if there is a new order, and retrieve its data
+def validate_new_order(methods)
+  antwort = methods.send :"TradesHistory" , {}
+  check_http_call(antwort,"TradesHistory")
+  body = JSON.parse(antwort.body)
+  if check_body_content(body,"Balance")
+    body["result"]["trades"].keys.each_with_index do |trade, id|
+      #We assume index 0 is the last trade
+      if id == 0
+        puts body["result"]["trades"][trade]
+      end
+    end
+  end
+end
+
+def add_order(methods)
+  debug "Going to buy something".bold
+  # Before placing an order, we need to get the last order ID, to compare against the future order,
+  # in order to know when the future order its complete
+  validate_new_order(methods)
+  # The following is required in order to place the order: 'trading_agreement': 'agree'
+  # other_params = { 'trading_agreement': 'agree' }
+  # antwort = methods.send :"AddOrder" , {"pair" => "XRPEUR", "type" => "buy", "ordertype" => "market", "volume" => '29', other_params }
+
+end
+
+def trade_invocation()
+  methods = Trade_Methods.new
+  antwort = methods.send :"Balance" , {}
+  check_http_call(antwort,"Balance")
+  body = JSON.parse(antwort.body)
+  if check_body_content(body,"Balance")
+    available_money = body["result"]["ZEUR"].to_f
+    if available_money > 50
+      puts "#{available_money}"
+      add_order(methods)
+    else
+      debug "Not enough money to trade, current balance: " + "#{available_money} ".red + "EUR".red + ", aborting.."
+      exit 1
+    end
+  end
+end
+
 def process_input()
   input_hash = Hash.new
   return {} if $method_input.empty?
-  if $method_input.include?(',')
-    $method_input.split(',').each do |element|
-        hash_values = element.split(':')
+  if $method_input.include?('&')
+    $method_input.strip.split('&').each do |argument|
+      if argument.include?(':')
+        hash_values = argument.split(':')
         input_hash[hash_values[0]] = hash_values[1]
+      else
+        debug("Input is not valid".red.bold )
+        exit(1)
+      end
     end
-  else
+  elsif $method_input.include?(':') & !$method_input.include?('&')
     hash_values = $method_input.split(':')
     input_hash = {
-      "#{hash_values[0]}" => "#{hash_values[1]}"
-    }
+      "#{hash_values[0]}" => "#{hash_values[1]}"}
+  else
+    debug("Input is not valid".red.bold )
+    exit(1)
   end
   return input_hash
 end
 
-methods = Trade_Methods.new
-methods.send :"#{$method_name}" , process_input()
+if $trading_mode
+  debug "Going to enter trading mode..."
+  trade_invocation
+else
+  methods = Trade_Methods.new
+  methods.send :"#{$method_name}" , process_input()
+end
