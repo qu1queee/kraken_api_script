@@ -10,14 +10,11 @@ require 'uri'
 require 'net/http'
 
 
-$api_key = nil
-$api_secret = nil
 $api_version = "0"
 $base_uri = "https://api.kraken.com"
-$request_type = 'private'
-$method_name = 'TradeBalance'
-$trading_mode = false
 $method_input = Hash.new
+$options = {}
+
 
 class String
   def red;            "\e[31m#{self}\e[0m" end
@@ -30,45 +27,116 @@ def debug(string, stream=STDOUT)
   stream.puts "Debug: ".bold + string.to_s
 end
 
-$optparse = OptionParser.new do | opts |
-  opts.banner = "This script interacts with the Kraken API, use it as follows:"
-  opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $api_key = value }
-  opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $api_secret = value }
-  opts.on("-m", "--method name", String, "more info at https://www.kraken.com/help/api (default: TradeBalance())") { |value| $method_name = value }
-  opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
-  opts.on("-t", "--trade mode", TrueClass ,"Trading mode enable during 30m") { |value| $trading_mode = value }
+subtext = <<HELP
+Main commands are:
+   TradeBalance           get your current Trade Balance
+   Balance                get cour current Balance
+   Ticker                 get a ticker information
+   Assets                 get an asset information
+   AssetPairs             get an asset pair information
+   Trades                 get trades
+   OHLC                   get ohlc data
+   TradingMode            run automatic trading
+See './kraken_api.rb COMMAND --help' for more information on a specific command.
+HELP
+
+
+global = OptionParser.new do |opts|
+  opts.banner = "kraken_api interacts with the Kraken API\nFind more information at https://www.kraken.com/help/api"
+  opts.separator ""
+  opts.separator subtext
 end
 
-$optparse.parse!
+
+subcommands = {
+  'TradeBalance' => OptionParser.new do |opts|
+     opts.banner = "Usage: TradeBalance [api-key] [private-key] [input]"
+     opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+     opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+     opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+  end,
+   'Balance' => OptionParser.new do |opts|
+      opts.banner = "Usage: Balance [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'Ticker' => OptionParser.new do |opts|
+      opts.banner = "Usage: Ticker [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'Assets' => OptionParser.new do |opts|
+      opts.banner = "Usage: Assets [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'AssetPairs' => OptionParser.new do |opts|
+      opts.banner = "Usage: AssetPairs [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'Trades' => OptionParser.new do |opts|
+      opts.banner = "Usage: Trades [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'OHLC' => OptionParser.new do |opts|
+      opts.banner = "Usage: OHLC [api-key] [private-key] [input]"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-i", "--method-input parameters", String, "eg. asset:ZEUR (optional) ") { |value| $method_input = value }
+   end,
+   'TradingMode' => OptionParser.new do |opts|
+      opts.banner = "Usage: TradingMode -a SOMETHING -p SOMETHING -c XRPEUR -t XXRPZEUR -v 600 -l 1 -w 4"
+      opts.on("-a", "--api-key value", String, "api-key (mandatory)") { |value| $options[:api_key] = value }
+      opts.on("-p", "--private-key value", String, "api-private-key (mandatory)") { |value| $options[:api_secret] = value }
+      opts.on("-c", "--coin type", String, "coin to buy, e.g. XRPEUR, ETHEUR") { |value| $options[:coin] = value }
+      opts.on("-t", "--ticker type", String, "ticker to trade, e.g. XXRPZEUR, XETHZEUR") { |value| $options[:ticker] = value }
+      opts.on("-v", "--volume amount", String, "volume to trade, e.g. 600") { |value| $options[:volume] = value }
+      opts.on("-l", "--lose-minimum percentage", Float, "min percentage that can be lost, before selling, e.g. 1") { |value| $options[:minimum] = value }
+      opts.on("-w", "--win-maximum percentage", Float, "percentage expected to win, before selling, e.g. 4") { |value| $options[:maximum] = value }
+   end
+}
+
+global.order!
+command = ARGV.shift
+$options[:method] = command
+subcommands[command].order! unless subcommands[command].nil?
+
 def backout(message)
   puts "\n"
-  puts $optparse.to_s + "\n" if defined? $optparse
   abort("#{'ERROR:'} #{message}")
 end
 
-backout "No api-key specified" if $api_key == nil
-backout "No private-key specified" if $api_secret == nil
+backout "No command specified, use --help for more information" if $options[:method] == nil
+backout "No api-key specified" if $options[:api_key] == nil
+backout "No private-key specified" if $options[:api_secret] == nil
 
 def get_public(method, input={})
   url = $base_uri + '/' + $api_version + '/public/' + method
   body = encode_options(input)
   uri = URI(url + '?' + body)
   res = Net::HTTP.get_response(uri)
-  puts "Response #{res.code} ,  #{res.message}: , #{res.body}"
+  puts "Response #{res.code} ,  #{res.message}: , #{res.body}"  if !$options[:method].eql?("TradingMode")
   return res
 end
 
 def post_private(method, input={})
   input['nonce'] = generate_nonce
   post_data = encode_options(input)
-  headers = { 'API-Key' => $api_key, 'API-Sign' => generate_message_signature(method, input, post_data) }
+  headers = { 'API-Key' => $options[:api_key], 'API-Sign' => generate_message_signature(method, input, post_data) }
   uri = URI.parse($base_uri + url_path(method))
   https = Net::HTTP.new(uri.host,uri.port)
   https.use_ssl = true
   req = Net::HTTP::Post.new(uri.path, headers)
   req.body = post_data
   res = https.request(req)
-  puts "Response #{res.code} ,  #{res.message}: , #{res.body}"
+  puts "Response #{res.code} ,  #{res.message}: , #{res.body}" if !$options[:method].eql?("TradingMode")
   return res
 end
 
@@ -81,7 +149,7 @@ end
 
 # API-Sign = Message signature using HMAC-SHA512 of (URI path + SHA256(nonce + POST data)) and base64 decoded secret API key
 def generate_message_signature(method, input={}, post_data)
-  key = Base64.decode64($api_secret)
+  key = Base64.decode64($options[:api_secret])
   message = generate_message(method, post_data, input)
   generate_api_signature(key, message)
 end
@@ -114,7 +182,7 @@ end
 class Trade_Methods
   def output_debug(type, method, input={})
     type.eql?("private") ? debug("Going to request => " + "private user data".bold.green) : debug("Going to request => " + "public market data.".bold.green )
-    debug("Requested method type => " + "#{method}".bold.green)
+    debug("Requested method type => " + $options[:method].bold.green)
     input.empty? ? debug("No inputs available for this method, using default values".red) : debug("Input: => " + "#{input}".blue)
   end
   ###################### private methods ######################
@@ -233,6 +301,14 @@ def check_body_content(body, method)
   exit 1
 end
 
+def is_new_order_placed?(methods, last_trade)
+  new_trade_id, new_trade_info = validate_new_order(methods)
+  if !new_trade_id.eql?(last_trade)
+    return true, new_trade_info
+  end
+  return false, nil
+end
+
 #check if there is a new order, and retrieve its data
 def validate_new_order(methods)
   antwort = methods.send :"TradesHistory" , {}
@@ -240,9 +316,51 @@ def validate_new_order(methods)
   body = JSON.parse(antwort.body)
   if check_body_content(body,"Balance")
     body["result"]["trades"].keys.each_with_index do |trade, id|
-      #We assume index 0 is the last trade
       if id == 0
-        puts body["result"]["trades"][trade]
+        return trade, body["result"]["trades"][trade]
+      end
+    end
+  end
+end
+
+#loop here until its time to sell
+def sell_or_buy(methods, info)
+  trade_status = false
+  trade_coin_price = info["price"].to_f
+  trade_coin_vol = info["vol"]
+  #Invoke Ticker and get coin current BID price
+  pair_value = "#{$options[:coin]}"
+  antwort = methods.send :"Ticker" , {"pair"=>"#{pair_value}"}
+  check_http_call(antwort,"Ticker")
+  body = JSON.parse(antwort.body)
+  if check_body_content(body,"Balance")
+    current_coin_price = body["result"]["#{$options[:ticker]}"]["b"][0].to_f
+    # current_coin_price = body["result"]["XETHZEUR"]["b"][0].to_f
+    delta = current_coin_price > trade_coin_price ? (current_coin_price - trade_coin_price) : (trade_coin_price - current_coin_price)
+    percentage = (delta * 100) / (trade_coin_price)
+    current_coin_price > trade_coin_price ? (puts "Price of buy: #{trade_coin_price}, current price: #{current_coin_price}, positive percentage is: #{percentage}") : (puts "Price of buy: #{trade_coin_price}, current price: #{current_coin_price}, negative percentage is: #{percentage}")
+    trade_status = current_coin_price > trade_coin_price ? true : false
+    if !trade_status
+      if percentage > $options[:minimum]
+        puts "going to sell, loosing"
+        other_params = { 'trading_agreement' => 'agree' }
+        antwort = methods.send :"AddOrder" , {"pair" => "#{$options[:coin]}", "type" => "sell", "ordertype" => "market", "volume" => "#{$options[:volume]}", 'trading_agreement' => 'agree' }
+        return true
+      else
+        puts "Waiting for next iteration.."
+        sleep(60)
+        return false
+      end
+    else
+      if percentage > $options[:maximum]
+        puts "going to sell, winning"
+        other_params = { 'trading_agreement' => 'agree' }
+        antwort = methods.send :"AddOrder" , {"pair" => "#{$options[:coin]}", "type" => "sell", "ordertype" => "market", "volume" => "#{$options[:volume]}", 'trading_agreement' => 'agree' }
+        return true
+      else
+        puts "Waiting for next iteration.."
+        sleep(60)
+        return false
       end
     end
   end
@@ -250,13 +368,17 @@ end
 
 def add_order(methods)
   debug "Going to buy something".bold
-  # Before placing an order, we need to get the last order ID, to compare against the future order,
-  # in order to know when the future order its complete
-  validate_new_order(methods)
+  last_trade, last_trade_info = validate_new_order(methods)
+  ################### PLACE ORDER ###################
   # The following is required in order to place the order: 'trading_agreement': 'agree'
-  # other_params = { 'trading_agreement': 'agree' }
-  # antwort = methods.send :"AddOrder" , {"pair" => "XRPEUR", "type" => "buy", "ordertype" => "market", "volume" => '29', other_params }
-
+  antwort = methods.send :"AddOrder" , {"pair" => "#{$options[:coin]}", "type" => "buy", "ordertype" => "market", "volume" => "#{$options[:volume]}", 'trading_agreement' => 'agree' }
+  puts antwort
+  ################### END ###########################
+  new_trade_id, new_trade_info = validate_new_order(methods)
+  flaggy = false
+  until flaggy
+    flaggy = sell_or_buy(methods, new_trade_info)
+  end
 end
 
 def trade_invocation()
@@ -264,16 +386,7 @@ def trade_invocation()
   antwort = methods.send :"Balance" , {}
   check_http_call(antwort,"Balance")
   body = JSON.parse(antwort.body)
-  if check_body_content(body,"Balance")
-    available_money = body["result"]["ZEUR"].to_f
-    if available_money > 50
-      puts "#{available_money}"
-      add_order(methods)
-    else
-      debug "Not enough money to trade, current balance: " + "#{available_money} ".red + "EUR".red + ", aborting.."
-      exit 1
-    end
-  end
+  add_order(methods) if check_body_content(body,"Balance")
 end
 
 def process_input()
@@ -300,10 +413,10 @@ def process_input()
   return input_hash
 end
 
-if $trading_mode
+if $options[:method].eql?("TradingMode")
   debug "Going to enter trading mode..."
   trade_invocation
 else
   methods = Trade_Methods.new
-  methods.send :"#{$method_name}" , process_input()
+  methods.send :"#{$options[:method]}" , process_input()
 end
